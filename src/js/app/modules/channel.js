@@ -7,6 +7,7 @@ var profile = require("./tools/profile");
 var tools = require("./tools/tools");
 var eventListener = require("./tools/eventListener");
 var apiHelper = require("./apiHelper");
+var moment = require("moment");
 
 var isNoAgentOnlineTipShowed;
 var receiveMsgTimer;
@@ -40,8 +41,6 @@ var _open = tools.retryThrottle(function(){
 	}
 
 	conn.open(op);
-
-	eventListener.excuteCallbacks(_const.SYSTEM_EVENT.IM_CONNECTION_OPENED, [conn]);
 }, {
 	resetTime: 10 * 60 * 1000,
 	waitTime: 2000,
@@ -328,6 +327,7 @@ function _handleMessage(msg, msgType, isHistory){
 	var officialAccount = utils.getDataByPath(msg, "ext.weichat.official_account");
 	var marketingTaskId = utils.getDataByPath(msg, "ext.weichat.marketing.marketing_task_id");
 	var officialAccountId = officialAccount && officialAccount.official_account_id;
+	var videoTicket = utils.getDataByPath(msg, "ext.msgtype.sendVisitorTicket.ticket");
 	var targetOfficialAccount;
 
 	if(receiveMsgDict.get(msgId)){
@@ -365,6 +365,11 @@ function _handleMessage(msg, msgType, isHistory){
 		&& eventObj.ticketEnable === "true"
 	){
 		type = "transferToTicket";
+	}
+	// 视频ticket
+	else if(videoTicket){
+		type = "rtcVideoTicket";
+		!isHistory && eventListener.excuteCallbacks(_const.SYSTEM_EVENT.VIDEO_TICKET_RECEIVED, [videoTicket]);
 	}
 	// else if (utils.getDataByPath(msg, 'ext.msgtype.articles')) {
 	// 	type = 'article';
@@ -534,8 +539,15 @@ function _handleMessage(msg, msgType, isHistory){
 		}
 	}
 
-	// 空文本消息不显示
-	if(!message || (type === "txt" && !message.data) || (type === "article" && _.isEmpty(utils.getDataByPath(msg, "ext.msgtype.articles")))) return;
+	if(
+		!message
+		// 空文本消息不上屏
+		|| (type === "txt" && !message.data)
+		// 空文章不上屏
+		|| (type === "article" && _.isEmpty(utils.getDataByPath(msg, "ext.msgtype.articles")))
+		// 视频邀请不上屏
+		|| (type === "rtcVideoTicket")
+	) return;
 
 	// 	给收到的消息加id，用于撤回消息
 	message.id = msgId;

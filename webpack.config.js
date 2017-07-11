@@ -75,10 +75,6 @@ var conmmonConfig = {
 				loader: "expose-loader?Modernizr"
 			},
 			{
-				test: require.resolve("moment"),
-				loader: "expose-loader?moment"
-			},
-			{
 				test: [
 					/init\.js$/,
 					/userAPI\.js$/,
