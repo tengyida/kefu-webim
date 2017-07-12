@@ -5,9 +5,9 @@
 	/static/js/em-transfer.js
 */
 
-const path = require('path');
-const webpack = require('webpack');
-const VERSION = 'pre_47.14.14';
+const path = require("path");
+const webpack = require("webpack");
+const VERSION = "pre_47.14.14";
 
 var conmmonConfig = {
 	plugins: [
@@ -29,53 +29,53 @@ var conmmonConfig = {
 			{
 				test: /easemob\.scss$/,
 				loaders: [
-					'ie8-style-loader?sourceMap=true',
-					'postcss-loader?sourceMap=true',
-					'sass-loader?sourceMap=true',
+					"ie8-style-loader?sourceMap=true",
+					"postcss-loader?sourceMap=true",
+					"sass-loader?sourceMap=true",
 				],
 			},
 			{
 				test: /im\.html$/,
 				loaders: [
-					'file-loader?name=../../[name].[ext]',
-					'extract-loader',
-					'html-loader',
+					"file-loader?name=../../[name].[ext]",
+					"extract-loader",
+					"html-loader",
 				],
 			},
 			{
 				test: /transfer\.html$/,
 				loaders: [
-					'file-loader?name=../../[name].[ext]',
-					'extract-loader',
-					'html-loader',
+					"file-loader?name=../../[name].[ext]",
+					"extract-loader",
+					"html-loader",
 				],
 			},
 			{
 				test: /im\.scss$/,
 				loaders: [
-					'file-loader?name=../css/[name].css',
-					'string-replace-loader'
-						+ '?search=' + '__WEBIM_PLUGIN_VERSION__'
-						+ '&replace=' + VERSION
-						+ '&flags=' + 'g',
-					'postcss-loader?sourceMap=true',
-					'sass-loader?sourceMap=true&importLoader=true'
+					"file-loader?name=../css/[name].css",
+					"string-replace-loader"
+						+ "?search=__WEBIM_PLUGIN_VERSION__"
+						+ "&replace=" + VERSION
+						+ "&flags=g",
+					"postcss-loader?sourceMap=true",
+					"sass-loader?sourceMap=true&importLoader=true"
 				],
 			},
 			{
-				test: require.resolve('./src/js/app/sdk/webim.config.js'),
+				test: require.resolve("./src/js/app/sdk/webim.config.js"),
 				loader: "expose-loader?WebIM"
 			},
 			{
-				test: require.resolve('underscore'),
+				test: require.resolve("underscore"),
 				loader: "expose-loader?_"
 			},
 			{
-				test: require.resolve('./src/js/app/lib/modernizr.js'),
+				test: require.resolve("./src/js/app/lib/modernizr.js"),
 				loader: "expose-loader?Modernizr"
 			},
 			{
-				test: require.resolve('moment'),
+				test: require.resolve("moment"),
 				loader: "expose-loader?moment"
 			},
 			{
@@ -86,11 +86,11 @@ var conmmonConfig = {
 					/icon\.scss/,
 					/iframe\.js/,
 				],
-				loader: 'string-replace-loader',
+				loader: "string-replace-loader",
 				query: {
-					search: '__WEBIM_PLUGIN_VERSION__',
+					search: "__WEBIM_PLUGIN_VERSION__",
 					replace: VERSION,
-					flags: 'g',
+					flags: "g",
 				},
 			},
 		],
@@ -98,39 +98,43 @@ var conmmonConfig = {
 };
 
 var transfer = Object.assign({}, conmmonConfig, {
-	name: 'transfer',
+	name: "transfer",
 	entry: [
-		'./src/js/transfer/api.js',
-		'./src/html/transfer.html',
+		"./src/js/transfer/api.js",
+		"./src/html/transfer.html",
 	],
 	output: {
-		filename: 'em-transfer.js',
-		path: path.resolve(__dirname, 'static/js'),
+		filename: "em-transfer.js",
+		path: path.resolve(__dirname, "static/js"),
 	},
 });
 
 var easemob = Object.assign({}, conmmonConfig, {
-	name: 'easemob',
-	entry: './src/js/plugin/userAPI.js',
+	name: "easemob",
+	entry: [
+		"./src/js/common/polyfill",
+		"./src/plugin-scss/easemob.scss",
+		"./src/js/plugin/userAPI.js",
+	],
 	output: {
-		filename: 'easemob.js',
-		path: path.resolve(__dirname, '.'),
-		library: 'easemob-kefu-webim-plugin',
-		libraryTarget: 'umd',
+		filename: "easemob.js",
+		path: path.resolve(__dirname, "."),
+		library: "easemob-kefu-webim-plugin",
+		libraryTarget: "umd",
 		umdNamedDefine: true,
 	},
 });
 
 var app = Object.assign({}, conmmonConfig, {
-	name: 'app',
+	name: "app",
 	entry: [
-		'./src/js/app/modules/init.js',
-		'./src/scss/im.scss',
-		'./src/html/im.html',
+		"./src/js/app/modules/init.js",
+		"./src/scss/im.scss",
+		"./src/html/im.html",
 	],
 	output: {
-		filename: 'main.js',
-		path: path.resolve(__dirname, 'static/js'),
+		filename: "main.js",
+		path: path.resolve(__dirname, "static/js"),
 	},
 });
 
