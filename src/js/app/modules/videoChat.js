@@ -223,7 +223,7 @@ function _pushStream(){
 
 function _reveiveTicket(ticketInfo){
 	// 加入会议
-	service.setup(emediaConfig);
+	service.setup(ticketInfo);
 
 	service.join(function(_memId){
 		console.warn("进入 ", _memId);
