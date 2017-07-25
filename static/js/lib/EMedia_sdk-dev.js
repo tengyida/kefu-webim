@@ -694,9 +694,9 @@
 	            emedia.LOG_LEVEL = parseInt(urlLogLevel);
 	        }
 
-	        if (self.ticket && _util.isPlainObject(self.ticket)) {
-	            self.setup(self.ticket);
-	        }
+	        // if(self.ticket && _util.isPlainObject(self.ticket)){
+	        //     self.setup(self.ticket);
+	        // }
 
 	        self.namespace = Math.uuidFast();
 	    },
@@ -732,7 +732,7 @@
 	    openUserMedia: function openUserMedia(pubS) {
 	        var self = this;
 
-	        self.__assertCurrent();
+	        //self.__assertCurrent();
 
 	        if (!pubS) {
 	            throw "require pubS";
@@ -754,7 +754,7 @@
 	    _openSharedDesktop: function _openSharedDesktop(pubS, success, errCallback) {
 	        var self = this;
 
-	        self.__assertCurrent();
+	        //self.__assertCurrent();
 
 	        __desktop.openDesktopMedia(null, function (_event) {
 	            if (_event instanceof __event.OpenDesktopMedia) {
@@ -780,6 +780,7 @@
 	                    success && success(self.current, stream);
 	                }, errCallback);
 	            } else {
+	                self.current && self.current.onEvent(new __event.ShareDesktopExtensionNotFound({ member: self.current }));
 	                errCallback && errCallback(_event);
 	            }
 	        });
@@ -788,7 +789,7 @@
 	    _openCamera: function _openCamera(pubS, success, errCallback) {
 	        var self = this;
 
-	        self.__assertCurrent();
+	        //self.__assertCurrent();
 
 	        //var constaints = pubS.constaints || {audio: !pubS.aoff, video: !pubS.voff};
 	        var constaints = pubS.constaints || { audio: true, video: true };
@@ -828,12 +829,12 @@
 	        }).catch(function (e) {
 	            _logger.debug('[WebRTC-API] getUserMedia() error: ', e);
 
-	            self.current.onEvent(new __event.OpenMediaError({ member: self.current, event: e }));
+	            self.current && self.current.onEvent(new __event.OpenMediaError({ member: self.current, event: e }));
 	            errCallback && errCallback(new __event.OpenMediaError({ member: self.current, event: e }));
 	        });
 	    },
 
-	    setup: function setup(ticket) {
+	    setup: function setup(ticket, ext) {
 	        var self = this;
 
 	        _logger.debug("recv ticket", ticket);
@@ -861,6 +862,7 @@
 	            resource: self.resource,
 	            nickName: self.nickName,
 	            ticket: ticket,
+	            ext: ext,
 
 	            sessionFactory: function sessionFactory() {
 	                return self.newSession(this, ticket);
@@ -934,6 +936,17 @@
 	        });
 	    },
 
+	    closePubstream: function closePubstream(stream) {
+	        if (stream.located()) {
+	            stream._localMediaStream && stream._localMediaStream.getTracks().forEach(function (track) {
+	                track.stop();
+	            });
+	            stream.localStream && stream.localStream.getTracks().forEach(function (track) {
+	                track.stop();
+	            });
+	        }
+	    },
+
 	    hungup: function hungup(streamId) {
 	        var self = this;
 
@@ -968,10 +981,88 @@
 	        }
 	    },
 
-	    voff: function voff(pubS, _voff) {
+	    zoom: function zoom(streamId, multiples, fail) {
 	        var self = this;
 
 	        self.__assertCurrent();
+	        var attendee = self.current;
+
+	        var linkedStream = attendee._linkedStreams[streamId];
+	        if (!linkedStream || linkedStream.located()) {
+	            throw streamId + " not exsits or locate, not connect";
+	        }
+
+	        linkedStream._zoom || (linkedStream._zoom = 1);
+
+	        var _zoom = linkedStream._zoom * multiples;
+	        if (_zoom < 1) {
+	            return;
+	        }
+
+	        linkedStream._zoom = _zoom;
+
+	        var arg = {
+	            op2: 20,
+	            streamId: streamId,
+	            zoom: Math.round(_zoom * 10000)
+	        };
+
+	        var message = attendee.newMessage({
+	            op: 1002,
+	            memId: linkedStream.owner.id,
+	            arg: JSON.stringify(arg)
+	        });
+
+	        attendee.postMessage(message, function (rsp) {
+	            if (rsp.result != 0) {
+	                var _evt = new __event.RemoteControlFail({ stream: linkedStream, failed: rsp.result, cause: rsp.msg });
+	                attendee.onEvent(_evt);
+	                fail && fail(_evt);
+
+	                return;
+	            }
+	        });
+	    },
+
+	    focusExpo: function focusExpo(streamId, width, height, x, y, fail) {
+	        var self = this;
+
+	        self.__assertCurrent();
+	        var attendee = self.current;
+
+	        var linkedStream = attendee._linkedStreams[streamId];
+	        if (!linkedStream || linkedStream.located()) {
+	            throw streamId + " not exsits or locate, not connect";
+	        }
+
+	        var arg = {
+	            op2: 20,
+	            streamId: streamId,
+	            focus: 1,
+	            expo: 1,
+	            x: width === 0 ? 0 : Math.round(x * 10000 / width),
+	            y: height === 0 ? 0 : Math.round(y * 10000 / height)
+	        };
+
+	        var message = attendee.newMessage({
+	            op: 1002,
+	            memId: linkedStream.owner.id,
+	            arg: JSON.stringify(arg)
+	        });
+
+	        attendee.postMessage(message, function (rsp) {
+	            if (rsp.result != 0) {
+	                var _evt = new __event.RemoteControlFail({ stream: linkedStream, failed: rsp.result, cause: rsp.msg });
+	                attendee.onEvent(_evt);
+	                fail && fail(_evt);
+
+	                return;
+	            }
+	        });
+	    },
+
+	    voff: function voff(pubS, _voff) {
+	        var self = this;
 
 	        pubS.voff = _voff;
 
@@ -979,13 +1070,11 @@
 	            track.enabled = !_voff;
 	        });
 
-	        self.current.voff(pubS, _voff);
+	        self.current && self.current.voff(pubS, _voff);
 	    },
 
 	    aoff: function aoff(pubS, _aoff) {
 	        var self = this;
-
-	        self.__assertCurrent();
 
 	        pubS.aoff = _aoff;
 
@@ -993,17 +1082,49 @@
 	            track.enabled = !_aoff;
 	        });
 
-	        self.current.aoff(pubS, _aoff);
+	        self.current && self.current.aoff(pubS, _aoff);
 	    },
 
-	    startRecord: function startRecord(rtcId, callback) {
+	    iceing: function iceing(streamId) {
 	        var self = this;
-	        self.current.startRecord(rtcId, callback);
+
+	        return _util.isPlainObject(self.current._linkedStreams[streamId]);
 	    },
 
-	    stopRecord: function stopRecord(rtcId, callback) {
+	    recording: function recording(streamId) {
 	        var self = this;
-	        self.current.stopRecord(rtcId, callback);
+
+	        return _util.isPlainObject(self.current._records[streamId]);
+	    },
+
+	    startRecord: function startRecord(streamId, callback) {
+	        var self = this;
+
+	        var _stream = self.current._linkedStreams[streamId];
+	        if (!_stream) {
+	            throw streamId + " not at linked streams";
+	        }
+	        if (!_stream._webrtc) {
+	            callback && callback(false);
+	        }
+
+	        self.current.startRecord(_stream, callback);
+	    },
+
+	    stopRecord: function stopRecord(streamId, callback) {
+	        var self = this;
+
+	        var _stream = self.current._records[streamId];
+	        if (!_stream) {
+	            throw streamId + " not at recording streams";
+	        }
+
+	        self.current.stopRecord(_stream, callback);
+	    },
+
+	    getCurrentMembers: function getCurrentMembers() {
+	        var self = this;
+	        return self.current.getCurrentMembers();
 	    },
 
 	    newSession: function newSession(attendee, ticket) {
@@ -1024,6 +1145,9 @@
 	            },
 	            onTermC: function onTermC(evt) {
 	                //self.onTermC(me, evt);
+	                _logger.info("Server termc rtc: ", evt.rtcId);
+
+	                attendee.closeWebrtc(evt.rtcId, false, true);
 	            },
 	            onEnter: function onEnter(evt) {
 	                attendee.onEnter(evt.cver, evt.mem);
@@ -1046,6 +1170,22 @@
 	            },
 	            onStreamControl: function onStreamControl(evt) {
 	                attendee.onStreamControl(evt.streamId, evt.voff, evt.aoff);
+	            },
+	            onRemoteControl: function onRemoteControl(evt) {
+	                _logger.error("Web not support remote control");
+
+	                var message = attendee.newMessage({
+	                    op: 1001,
+	                    tsxId: evt.tsxId,
+	                    memId: evt.memId,
+	                    arg: evt.arg,
+	                    result: -477,
+	                    msg: "Web not support the remote control."
+	                });
+
+	                attendee.postMessage(message, function (rsp) {
+	                    _logger.error("Send remote control response. the result = ", rsp.result, rsp.msg || "");
+	                });
 	            }
 	        });
 
@@ -1148,7 +1288,13 @@
 	        return this;
 	    },
 	    setFlag: function setFlag(flag) {
-	        flag && (this.flag = flag);
+	        flag === 0 && (this.flag = 0);
+	        flag === 1 && (this.flag = 1);
+
+	        return this;
+	    },
+	    setExt: function setExt(ext) {
+	        ext && (this.ext = ext);
 	        return this;
 	    }
 	});
@@ -1241,7 +1387,7 @@
 	            var tmp = [];
 	            for (var tsxId in _messageMap) {
 	                var msg = _messageMap[tsxId];
-	                if (!self.online && (msg.op === 107 || msg.op === 201 || msg.op === 206 || msg.op === 400)) {
+	                if (!self.online && (msg.op === 107 || msg.op === 201 || msg.op === 206 || msg.op === 400 || msg.op === 500)) {
 	                    tmp.push(msg);
 	                    continue;
 	                }
@@ -1390,8 +1536,10 @@
 	        '304': 'onMems',
 	        '204': 'onClose',
 	        '400': 'onStreamControl',
-	        '401': 'onJoin'
+	        '401': 'onJoin',
+	        '1002': 'onRemoteControl'
 
+	        //'onServerError': 'onServerError'
 	    },
 
 	    __init__: function __init__() {
@@ -1452,7 +1600,7 @@
 	            self.__retryConnectIntervalId && clearTimeout(self.__retryConnectIntervalId);
 	            self.__retryConnectIntervalId && delete self.__retryConnectIntervalId;
 
-	            var enter = self.newMessage().setOp(200).setSessId(self._sessionId).setTicket(self.ticket).setNickName(self.nickName || self.ticket.memName).setResource(self.resource);
+	            var enter = self.newMessage().setOp(200).setSessId(self._sessionId).setTicket(self.ticket).setNickName(self.nickName || self.ticket.memName).setResource(self.resource).setExt(self.owner.ext);
 	            self.postMessage(enter, function (rsp) {
 	                if (rsp.result != 0) {
 	                    try {
@@ -2012,6 +2160,13 @@
 	        } }),
 
 	    /**
+	     * {stream: stream, failed: failed, me: me, cause: cause}
+	     */
+	    RemoteControlFail: Error.extend({ message: function message() {
+	            return this.execTime() + " " + "remote control fail, streamId = " + this.stream.id + " failed = " + this.failed + " cause：" + (this.cause ? this.cause.message ? this.cause.message() : this.cause : "unkown");
+	        } }),
+
+	    /**
 	     * {subMember: subMember, subStream: subStream, cause: ))
 	     */
 	    SubSuccess: Error.extend({ message: function message() {
@@ -2098,10 +2253,22 @@
 	        self.closed = false;
 	    },
 
+	    getCurrentMembers: function getCurrentMembers() {
+	        var self = this;
+
+	        var members = [];
+	        _util.forEach(self._cacheMembers, function (_memId, _cacheMember) {
+	            var member = _util.extend(true, {}, _cacheMember);
+	            members.push(member);
+	        });
+
+	        return members;
+	    },
+
 	    newStream: function newStream(cfg) {
 	        var attendee = this;
 
-	        var _Stream = new Stream.extend({
+	        var _Stream = Stream.extend({
 	            __init__: function __init__() {
 	                var self = this;
 
@@ -2192,7 +2359,7 @@
 	        }
 
 	        function onConnected() {
-	            enter = self.newMessage().setOp(200).setTicket(self.ticket).setNickName(self.nickName || self.ticket.memName).setResource(self.resource);
+	            enter = self.newMessage().setOp(200).setTicket(self.ticket).setNickName(self.nickName || self.ticket.memName).setResource(self.resource).setExt(self.ext);
 	            self.postMessage(enter, enterRsp);
 	        }
 
@@ -2289,7 +2456,7 @@
 	                self.setLocalStream(stream, webrtc.getRtcId());
 
 	                self.doOffer(webrtc.getRtcId(), function (sdp) {
-	                    enter = self.newMessage().setOp(200).setTicket(self.ticket).setNickName(self.nickName || self.ticket.memName).setResource(self.resource).setSdp(sdp).setRtcId(webrtc.getRtcId()).setPubS(pubS);
+	                    enter = self.newMessage().setOp(200).setTicket(self.ticket).setNickName(self.nickName || self.ticket.memName).setResource(self.resource).setSdp(sdp).setRtcId(webrtc.getRtcId()).setPubS(pubS).setExt(self.ext);
 	                    self.postMessage(enter, enterRsp);
 	                });
 	            }
@@ -2560,7 +2727,8 @@
 	        var stream = newStream;
 	        stream.owner = self._cacheMembers[memId];
 	        self._cacheStreams[pubS.id] = stream;
-	        self.onAddStream(stream);
+
+	        self.onAddStream(self.newStream(stream));
 
 	        if (self.autoSub) {
 	            self.createWebrtcAndSubscribeStream(pubS.id, {
@@ -2648,30 +2816,35 @@
 	        self.postMessage(streamControl, callback);
 	    },
 
-	    startRecord: function startRecord(rtcId, success) {
+	    startRecord: function startRecord(_stream, success) {
 	        var self = this;
+
+	        var rtcId = _stream.rtcId;
 
 	        var startRecord = self.newMessage().setOp(500).setRtcId(rtcId).setFlag(1);
 	        self.postMessage(startRecord, function (rsp) {
 	            _logger.warn("record ", rtcId, rsp.result, rsp.msg);
 	            success && success(rsp.result === 0);
 	            if (rsp.result === 0) {
-	                self._records[rtcId] = true;
+	                self._records[_stream.id] = _util.extend(false, {}, _stream);
 	            }
 	        });
 	    },
 
-	    stopRecord: function stopRecord(rtcId, success) {
+	    stopRecord: function stopRecord(_stream, success) {
 	        var self = this;
+
+	        var rtcId = _stream.rtcId;
 
 	        var stopRecord = self.newMessage().setOp(500).setRtcId(rtcId).setFlag(0);
 	        self.postMessage(stopRecord, function (rsp) {
 	            _logger.warn("stop record ", rtcId, rsp.result, rsp.msg);
 	            success && success(rsp.result === 0);
-	            if (self._records[rtcId]) {
-	                _util.removeAttribute(self._records, rtcId);
-	            }
 	        });
+
+	        if (self._records[_stream.id]) {
+	            _util.removeAttribute(self._records, _stream.id);
+	        }
 	    },
 
 	    onMembers: function onMembers(cver, members) {
@@ -3075,7 +3248,7 @@
 
 	        var webrtc = self._ices[rtcId];
 
-	        webrtc.createOffer(function (sdp) {
+	        webrtc && webrtc.createOffer(function (sdp) {
 	            onGotOffer(sdp);
 	        });
 	    },
@@ -3085,7 +3258,7 @@
 
 	        var webrtc = self._ices[rtcId];
 
-	        webrtc.createOffer(function (sdp) {
+	        webrtc && webrtc.createOffer(function (sdp) {
 	            self._initC && self._initC(webrtc, stream, sdp, subSId, rspFail);
 	        });
 	    },
@@ -3094,7 +3267,7 @@
 	        var self = this;
 
 	        var webrtc = self._ices[rtcId];
-	        webrtc.createPRAnswer(function (sdp) {
+	        webrtc && webrtc.createPRAnswer(function (sdp) {
 	            self._acptC && self._acptC(webrtc, sdp, rspFail);
 	        });
 	    },
@@ -3103,7 +3276,7 @@
 	        var self = this;
 
 	        var webrtc = self._ices[rtcId];
-	        webrtc.createAnswer(function (sdp) {
+	        webrtc && webrtc.createAnswer(function (sdp) {
 	            self._ansC && self._ansC(webrtc, sdp, rspFail);
 	        });
 	    },
@@ -3134,42 +3307,71 @@
 	        }
 
 	        var webrtc = self._ices[rtcId];
-	        webrtc.addIceCandidate(cands);
+	        webrtc && webrtc.addIceCandidate(cands);
 	    },
 
-	    closeWebrtc: function closeWebrtc(rtcId, remainLocalStream) {
+	    closeWebrtc: function closeWebrtc(rtcId, remainLocalStream, serverClosed) {
 	        var self = this;
 
-	        if (self._records && self._records[rtcId]) {
-	            try {
-	                self.stopRecord(rtcId);
-	            } catch (e) {
-	                _logger.error(e);
-	            } finally {
-	                _util.removeAttribute(self._records, rtcId);
+	        var webrtc = self._ices[rtcId];
+
+	        if (!webrtc || webrtc.closed) {
+	            _logger.warn("Webrtc not exsits or closed", webrtc && webrtc.closed);
+
+	            if (serverClosed) {
+	                webrtc && _util.forEach(self._cacheStreams, function (sid, _stream) {
+	                    if (_stream.rtcId === rtcId) {
+	                        delete self._linkedStreams[sid];
+	                    }
+	                });
 	            }
+
+	            return;
 	        }
 
-	        var webrtc = self._ices[rtcId];
+	        if (self._records) {
+	            (function () {
+	                var _stopRecord = function _stopRecord(_stream) {
+	                    try {
+	                        self.stopRecord(_stream);
+	                    } catch (e) {
+	                        _logger.error(e);
+	                    } finally {
+	                        _util.removeAttribute(self._records, _stream.id);
+	                    }
+	                };
+
+	                _util.forEach(self._records, function (sid, _stream) {
+	                    _stream.rtcId === rtcId && _stopRecord(_stream);
+	                });
+	            })();
+	        }
+
 	        try {
-	            webrtc && self._termC(webrtc, remainLocalStream && webrtc._localStream ? -10 : 0);
+	            serverClosed || webrtc && self._termC(webrtc, remainLocalStream && webrtc._localStream ? -10 : 0);
 	        } finally {
 	            //webrtc && _util.removeAttribute(self._ices, rtcId);
 
-	            webrtc && webrtc.close(remainLocalStream);
+	            webrtc && webrtc.close();
 	            webrtc && self.onWebrtcTermC && self.onWebrtcTermC(webrtc);
 
 	            if (remainLocalStream) {} else {
 	                webrtc && _util.forEach(self._cacheStreams, function (sid, _stream) {
-	                    if (_stream.located() && _stream.rtcId === rtcId) {
-	                        _stream.type !== 1 && _stream._localMediaStream && _stream._localMediaStream.getTracks().forEach(function (track) {
-	                            track.stop();
-	                        });
+	                    if (_stream.rtcId === rtcId) {
+	                        if (_stream.located()) {
+	                            _stream.type !== 1 && _stream._localMediaStream && _stream._localMediaStream.getTracks().forEach(function (track) {
+	                                track.stop();
+	                            });
 
-	                        self._cacheStreams[sid] && self._linkedStreams[sid] && self.onRemoveStream(_stream);
+	                            self._cacheStreams[sid] && self._linkedStreams[sid] && self.onRemoveStream(_stream);
 
-	                        delete self._cacheStreams[sid];
-	                        _logger.info("Remove stream", sid, ". from cache");
+	                            delete self._cacheStreams[sid];
+	                            _logger.info("Remove stream", sid, ". from cache");
+	                        }
+
+	                        if (serverClosed) {
+	                            delete self._linkedStreams[sid];
+	                        }
 	                    }
 	                });
 	            }
@@ -3247,21 +3449,21 @@
 	        var self = this;
 
 	        var webrtc = self._ices[rtcId];
-	        webrtc.iceConnectionState();
+	        return webrtc && webrtc.iceConnectionState();
 	    },
 
 	    _iceSetRemoteSDP: function _iceSetRemoteSDP(sdp, rtcId) {
 	        var self = this;
 
 	        var webrtc = self._ices[rtcId];
-	        webrtc.setRemoteDescription(sdp);
+	        webrtc && webrtc.setRemoteDescription(sdp);
 	    },
 
 	    setLocalStream: function setLocalStream(stream, rtcId) {
 	        var self = this;
 
 	        var webrtc = self._ices[rtcId];
-	        webrtc.setLocalStream(stream);
+	        webrtc && webrtc.setLocalStream(stream);
 	    },
 
 	    onWebrtcTermC: function onWebrtcTermC(_webrtc) {}
@@ -3559,6 +3761,7 @@
 	 *
 	 */
 	var _WebRTC = _util.prototypeExtend({
+	    closed: false,
 	    sdpConstraints: {
 	        'mandatory': {
 	            'OfferToReceiveAudio': true,
@@ -3590,9 +3793,8 @@
 	    },
 
 	    createRtcPeerConnection: function createRtcPeerConnection(iceServerConfig) {
-	        _logger.debug('begin create RtcPeerConnection ......');
-
 	        var self = this;
+	        _logger.debug('begin create RtcPeerConnection ......', "closed:", self.closed);
 
 	        iceServerConfig || (iceServerConfig = self.iceServerConfig);
 
@@ -3610,7 +3812,7 @@
 	        } else {
 	            iceServerConfig = null;
 	        }
-	        _logger.debug('RtcPeerConnection config:', iceServerConfig);
+	        _logger.debug('RtcPeerConnection config:', iceServerConfig, "closed:", self.closed);
 
 	        var rtcPeerConnection = self._rtcPeerConnection = new RTCPeerConnection(iceServerConfig);
 	        _logger.debug('created local peer connection object', rtcPeerConnection);
@@ -3624,7 +3826,7 @@
 	        };
 
 	        rtcPeerConnection.onicestatechange = function (event) {
-	            _logger.debug("ice connect state", self.webRtc.iceConnectionState(), "evt.target state", event.target.iceConnectionState);
+	            _logger.debug("ice connect state", self.webRtc.iceConnectionState(), "evt.target state", event.target.iceConnectionState, "closed:", self.closed);
 	            self.onIceStateChange(event);
 	        };
 
@@ -3640,7 +3842,7 @@
 	    setLocalStream: function setLocalStream(localStream) {
 	        this._localStream = localStream;
 	        this._rtcPeerConnection.addStream(localStream);
-	        _logger.debug('Added local stream to RtcPeerConnection', localStream);
+	        _logger.debug('Added local stream to RtcPeerConnection', localStream, "closed:", this.closed);
 	    },
 
 	    getLocalStream: function getLocalStream() {
@@ -3658,8 +3860,8 @@
 	        return self._rtcPeerConnection.createOffer(self.offerOptions).then(function (desc) {
 	            self.offerDescription = desc;
 
-	            _logger.debug('Offer ', desc); //_logger.debug('from \n' + desc.sdp);
-	            _logger.debug('setLocalDescription start');
+	            _logger.debug('Offer ', desc, "closed:", self.closed); //_logger.debug('from \n' + desc.sdp);
+	            _logger.debug('setLocalDescription start', "closed:", self.closed);
 
 	            self._rtcPeerConnection.setLocalDescription(desc).then(self.onSetLocalSessionDescriptionSuccess, self.onSetSessionDescriptionError).then(function () {
 	                (onCreateOfferSuccess || self.onCreateOfferSuccess)(desc);
@@ -3670,20 +3872,20 @@
 	    createPRAnswer: function createPRAnswer(onCreatePRAnswerSuccess, onCreatePRAnswerError) {
 	        var self = this;
 
-	        _logger.info(' createPRAnswer start');
+	        _logger.info(' createPRAnswer start', "closed:", self.closed);
 	        // Since the 'remote' side has no media stream we need
 	        // to pass in the right constraints in order for it to
 	        // accept the incoming offer of audio and video.
 	        return self._rtcPeerConnection.createAnswer(self.sdpConstraints).then(function (desc) {
-	            _logger.debug('_____________PRAnswer ', desc.sdp); //_logger.debug('from :\n' + desc.sdp);
+	            _logger.debug('_____________PRAnswer ', desc.sdp, "closed:", self.closed); //_logger.debug('from :\n' + desc.sdp);
 
 	            desc.type = "pranswer";
 	            desc.sdp = desc.sdp.replace(/a=recvonly/g, 'a=inactive');
 
 	            self.__prAnswerDescription = desc;
 
-	            _logger.debug('inactive PRAnswer ', desc.sdp); //_logger.debug('from :\n' + desc.sdp);
-	            _logger.debug('setLocalDescription start');
+	            _logger.debug('inactive PRAnswer ', desc.sdp, "closed:", self.closed); //_logger.debug('from :\n' + desc.sdp);
+	            _logger.debug('setLocalDescription start', "closed:", self.closed);
 
 	            self._rtcPeerConnection.setLocalDescription(desc).then(self.onSetLocalSuccess, self.onSetSessionDescriptionError).then(function () {
 	                var sdpSection = new SDPSection(desc.sdp);
@@ -3693,7 +3895,7 @@
 
 	                desc.sdp = sdpSection.getUpdatedSDP();
 
-	                _logger.debug('Send PRAnswer ', desc.sdp); //_logger.debug('from :\n' + desc.sdp);
+	                _logger.debug('Send PRAnswer ', desc.sdp, "closed:", self.closed); //_logger.debug('from :\n' + desc.sdp);
 
 	                (onCreatePRAnswerSuccess || self.onCreatePRAnswerSuccess)(desc);
 	            });
@@ -3703,12 +3905,12 @@
 	    createAnswer: function createAnswer(onCreateAnswerSuccess, onCreateAnswerError) {
 	        var self = this;
 
-	        _logger.info('createAnswer start');
+	        _logger.info('createAnswer start', "closed:", self.closed);
 	        // Since the 'remote' side has no media stream we need
 	        // to pass in the right constraints in order for it to
 	        // accept the incoming offer of audio and video.
 	        return self._rtcPeerConnection.createAnswer(self.sdpConstraints).then(function (desc) {
-	            _logger.debug('_____________________Answer ', desc.sdp); //_logger.debug('from :\n' + desc.sdp);
+	            _logger.debug('_____________________Answer ', desc.sdp, "closed:", self.closed); //_logger.debug('from :\n' + desc.sdp);
 
 	            desc.type = 'answer';
 
@@ -3732,8 +3934,8 @@
 
 	            self.__answerDescription = desc;
 
-	            _logger.debug('Answer ', desc.sdp); //_logger.debug('from :\n' + desc.sdp);
-	            _logger.debug('setLocalDescription start');
+	            _logger.debug('Answer ', desc.sdp, "closed:", self.closed); //_logger.debug('from :\n' + desc.sdp);
+	            _logger.debug('setLocalDescription start', "closed:", self.closed);
 
 	            self._rtcPeerConnection.setLocalDescription(desc).then(self.onSetLocalSuccess, self.onSetSessionDescriptionError).then(function () {
 	                if (emedia.supportPRAnswer) {
@@ -3746,7 +3948,7 @@
 	                    desc.sdp = sdpSection.getUpdatedSDP();
 	                }
 
-	                _logger.debug('Send Answer ', desc.sdp); //_logger.debug('from :\n' + desc.sdp);
+	                _logger.debug('Send Answer ', desc.sdp, "closed:", self.closed); //_logger.debug('from :\n' + desc.sdp);
 
 	                (onCreateAnswerSuccess || self.onCreateAnswerSuccess)(desc);
 	            });
@@ -3754,15 +3956,20 @@
 	    },
 
 	    close: function close(remainLocalStream) {
-	        _logger.warn("webrtc closing");
-
 	        var self = this;
+	        _logger.warn("webrtc closing", "closed:", self.closed);
+
+	        if (self.closed) {
+	            return;
+	        }
 
 	        try {
 	            self._rtcPeerConnection && self._rtcPeerConnection.close();
 	        } catch (e) {
 	            _logger.error(e);
 	        } finally {
+	            self.closed = true;
+
 	            // if (!remainLocalStream && self._localStream) {
 	            //     self._localStream.getTracks().forEach(function (track) {
 	            //         track.stop();
@@ -3788,7 +3995,7 @@
 	            return;
 	        }
 
-	        _logger.debug('Add ICE candidate: ', candidate);
+	        _logger.debug('Add ICE candidate: ', candidate, "closed:", self.closed);
 
 	        var _cands = _util.isArray(candidate) ? candidate : [];
 	        !_util.isArray(candidate) && _cands.push(candidate);
@@ -3796,7 +4003,7 @@
 	        if (!self.__setRemoteSDP) {
 	            Array.prototype.push.apply(self.__tmpRemoteCands || (self.__tmpRemoteCands = {}), _cands);
 
-	            _logger.debug('Add ICE candidate but tmp buffer caused by not set remote sdp: ', candidate);
+	            _logger.debug('Add ICE candidate but tmp buffer caused by not set remote sdp: ', candidate, "closed:", self.closed);
 	            return;
 	        }
 
@@ -3810,10 +4017,10 @@
 	    setRemoteDescription: function setRemoteDescription(desc) {
 	        var self = this;
 
-	        _logger.debug('setRemoteDescription start. ', desc);
+	        _logger.debug('setRemoteDescription start. ', desc, "closed:", self.closed);
 
 	        desc.sdp = desc.sdp.replace(/UDP\/TLS\/RTP\/SAVPF/g, "RTP/SAVPF");
-	        _logger.debug('setRemoteDescription.', desc);
+	        _logger.debug('setRemoteDescription.', desc, "closed:", self.closed);
 
 	        desc = new RTCSessionDescription(desc);
 
@@ -3822,7 +4029,7 @@
 	            self.onSetRemoteSuccess.apply(self, arguments);
 
 	            if (self.__tmpRemoteCands && self.__tmpRemoteCands.length > 0) {
-	                _logger.debug('After setRemoteDescription. add tmp cands');
+	                _logger.debug('After setRemoteDescription. add tmp cands', "closed:", self.closed);
 	                self.addIceCandidate(self.__tmpRemoteCands);
 
 	                self.__tmpRemoteCands = [];
@@ -3840,7 +4047,7 @@
 	        _logger.debug('onGotRemoteStream.', event);
 	        this._remoteStream = event.stream;
 	        this.onGotRemoteStream(this._remoteStream, event);
-	        _logger.debug('received remote stream, you will see the other.');
+	        _logger.debug('received remote stream, you will see the other.', "closed:", this.closed);
 	    },
 
 	    onSetRemoteSuccess: function onSetRemoteSuccess() {
@@ -3864,7 +4071,7 @@
 	    },
 
 	    onIceStateChange: function onIceStateChange(event) {
-	        _logger.debug('onIceStateChange : ICE state change event: ', event);
+	        _logger.debug('onIceStateChange : ICE state change event: ');
 	    },
 
 	    onCreateSessionDescriptionError: function onCreateSessionDescriptionError(error) {
@@ -3917,10 +4124,12 @@
 	 *  voff:
 	 *  aoff:
 	 *  type: 0 1
+	 *  ext:
 	 *  owner: {
 	 *    id:
 	 *    nickName:
 	 *    name:
+	 *    ext:
 	 *  }
 	 *
 	 *  _localMediaStream:
@@ -4024,13 +4233,18 @@
 	            self.onICERemoteMediaStream(evt.webrtc);
 	        } else if (evt instanceof __event.PushSuccess) {
 	            self._cacheStreams[evt.stream.id] = self._linkedStreams[evt.stream.id] = evt.stream;
+
+	            var _stream = self.newStream(evt.stream);
+
 	            if (evt.hidden && !self._maybeNotExistStreams[evt.stream.id]) {
-	                self.onAddStream(evt.stream);
+	                self.onAddStream(_stream);
 	                return;
 	            }
+
 	            _stream && self.onUpdateStream(_stream);
 	        } else if (evt instanceof __event.SubSuccess) {
 	            self._linkedStreams[evt.stream.id] = evt.stream;
+	            evt.stream._zoom = 1;
 	        } else if (evt instanceof __event.PushFail) {
 	            delete self._linkedStreams[evt.stream.id];
 
@@ -4167,8 +4381,14 @@
 	                    }
 	                    self.closeWebrtc(webrtc.getRtcId(), false);
 	                } else {
+	                    var recording = self._records[problemStream.id];
+
 	                    _logger.info("ice fail. webrtc = ", webrtc.getRtcId(), " will rebuild. remain local stream. ", problemStream.id);
 	                    self.closeWebrtc(webrtc.getRtcId(), true);
+
+	                    if (recording) {
+	                        self._records[problemStream.id] = recording;
+	                    }
 
 	                    setTimeout(function () {
 	                        self.iceRebuild(problemStream);
@@ -4205,6 +4425,14 @@
 	                    _logger.info("ice reconnected. webrtc = ", webrtc.getRtcId(), "will update stream = ", stream.id);
 	                    //stream.located() && self.onUpdateStream(self._linkedStreams[stream.id]);
 	                    //self.onUpdateStream(self._linkedStreams[stream.id]);
+
+	                    var _recordStream = self._records[stream.id];
+	                    if (_recordStream && _recordStream.rtcId !== stream.rtcId) {
+	                        //在重连后，恢复录制
+	                        //self.stopRecord(_recordStream);
+	                        self.startRecord(stream);
+	                        _logger.warn("Re record. for ", stream.id, ", after rebuild ice.", _recordStream.rtcId, "->", stream.rtcId);
+	                    }
 	                } else {
 	                    _logger.info("ice connected. webrtc = ", webrtc.getRtcId(), stream.id);
 
@@ -4221,6 +4449,7 @@
 	        var streams = [];
 	        _util.forEach(self._cacheStreams, function (sid, _stream) {
 	            if (_stream.rtcId == webrtc.getRtcId() && !_stream.located()) {
+	                var _stream = self.newStream(_stream);
 	                self.onUpdateStream(_stream, { mediaStream: _stream.getMediaStream() });
 	            }
 	        });
@@ -4245,9 +4474,10 @@
 	            _logger.warn("Websocket disconnect. waiting. rebuild count reset", stream.iceRebuildCount, stream.id);
 	            return;
 	        }
-	        if (!self._linkedStreams[stream.id]) {
+	        if (!self._linkedStreams[stream.id] || !self._cacheStreams[stream.id]) {
 	            _logger.info("ice rebuild fail. it yet closed. stream is ", stream.id, stream.rtcId);
 	            _util.removeAttribute(self._maybeNotExistStreams, stream.id);
+	            _util.removeAttribute(self._linkedStreams, stream.id);
 	            return;
 	        }
 

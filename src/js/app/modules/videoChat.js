@@ -301,9 +301,6 @@ function _onConfirm(){
 			}
 		}
 	});
-
-	// for debug
-	_reveiveTicket();
 }
 
 module.exports = {
