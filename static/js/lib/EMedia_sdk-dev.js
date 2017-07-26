@@ -837,7 +837,12 @@
 	    setup: function setup(ticket, ext) {
 	        var self = this;
 
-	        _logger.debug("recv ticket", ticket);
+	        _logger.debug("recv ticket", ticket, ext);
+
+	        ext = ext || {};
+	        if (_util.isPlainObject(ext)) {
+	            ext = JSON.stringify(ext);
+	        }
 
 	        if (typeof ticket === "string") {
 	            ticket = JSON.parse(ticket);
@@ -1241,6 +1246,9 @@
 	        pubS && (this.pubS = _util.extend(false, {}, pubS));
 
 	        var thisPubS = this.pubS;
+	        if (thisPubS.ext && _util.isPlainObject(thisPubS.ext)) {
+	            thisPubS.ext = JSON.stringify(thisPubS.ext);
+	        }
 
 	        thisPubS && _util.forEach(thisPubS, function (key, value) {
 	            if (_util.isPlainObject(value) || typeof value === 'function') {
@@ -1294,6 +1302,9 @@
 	        return this;
 	    },
 	    setExt: function setExt(ext) {
+	        if (ext && _util.isPlainObject(ext)) {
+	            ext = JSON.stringify(ext);
+	        }
 	        ext && (this.ext = ext);
 	        return this;
 	    }
@@ -1762,7 +1773,25 @@
 
 	            _util.forEach(_mems, function (index, _mem) {
 	                message.mems[_mem.id] = _mem;
+
+	                if (_mem && _mem.ext) {
+	                    try {
+	                        message.mems[_mem.id].ext = JSON.parse(_mem.ext);
+	                    } catch (e) {
+	                        _logger.error(e);
+	                    }
+	                }
 	            });
+	        }
+
+	        if (message && message.mem) {
+	            if (message.mem && message.mem.ext) {
+	                try {
+	                    message.mem.ext = JSON.parse(message.mem.ext);
+	                } catch (e) {
+	                    _logger.error(e);
+	                }
+	            }
 	        }
 
 	        if (message && message.streams) {
@@ -1775,7 +1804,33 @@
 
 	            _util.forEach(_streams, function (index, _stream) {
 	                message.streams[_stream.id] = _stream;
+
+	                if (_stream && _stream.ext) {
+	                    try {
+	                        message.streams[_stream.id].ext = JSON.parse(_stream.ext);
+	                    } catch (e) {
+	                        _logger.error(e);
+	                    }
+	                }
 	            });
+	        }
+
+	        if (message && message.pubS) {
+	            if (message.pubS && message.pubS.ext) {
+	                try {
+	                    message.pubS.ext = JSON.parse(message.pubS.ext);
+	                } catch (e) {
+	                    _logger.error(e);
+	                }
+	            }
+	        }
+
+	        if (message && message.ext) {
+	            try {
+	                message.ext = JSON.parse(message.ext);
+	            } catch (e) {
+	                _logger.error(e);
+	            }
 	        }
 	    },
 
@@ -1875,6 +1930,10 @@
 	            message.sdp.type = message.sdp.type.toUpperCase();
 	            message.sdp = _util.stringifyJSON(message.sdp);
 	        }
+
+	        // if(message.ext && _util.isPlainObject(message.ext)){
+	        //     message.ext = JSON.stringify(message.ext);
+	        // }
 
 	        return message;
 	    },
