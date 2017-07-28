@@ -759,6 +759,7 @@
 	        __desktop.openDesktopMedia(null, function (_event) {
 	            if (_event instanceof __event.OpenDesktopMedia) {
 	                var desktopStreamId = _event.desktopStreamId;
+	                _logger.warn("desktop streamId", desktopStreamId);
 
 	                var constraints = {
 	                    audio: false,
@@ -814,7 +815,11 @@
 	    __getUserMedia: function __getUserMedia(constaints, success, errCallback) {
 	        var self = this;
 
+	        var _openstream;
+
 	        navigator.mediaDevices.getUserMedia(constaints).then(function (stream) {
+	            _openstream = stream;
+
 	            var videoTracks = stream.getVideoTracks();
 	            var audioTracks = stream.getAudioTracks();
 
@@ -829,6 +834,10 @@
 	        }).catch(function (e) {
 	            _logger.debug('[WebRTC-API] getUserMedia() error: ', e);
 
+	            _openstream && _openstream.getTracks().forEach(function (track) {
+	                track.stop();
+	            });
+
 	            self.current && self.current.onEvent(new __event.OpenMediaError({ member: self.current, event: e }));
 	            errCallback && errCallback(new __event.OpenMediaError({ member: self.current, event: e }));
 	        });
@@ -840,8 +849,16 @@
 	        _logger.debug("recv ticket", ticket, ext);
 
 	        ext = ext || {};
+
+	        var extObj = ext;
 	        if (_util.isPlainObject(ext)) {
+	            //ext 是对象， extObj 也是对象
 	            ext = JSON.stringify(ext);
+	        } else {
+	            //ext 是字符串， extObj 尽量转换为 对象
+	            try {
+	                extObj = JSON.parse(ext);
+	            } catch (e) {}
 	        }
 
 	        if (typeof ticket === "string") {
@@ -868,6 +885,7 @@
 	            nickName: self.nickName,
 	            ticket: ticket,
 	            ext: ext,
+	            extObj: extObj,
 
 	            sessionFactory: function sessionFactory() {
 	                return self.newSession(this, ticket);
@@ -1029,8 +1047,63 @@
 	        });
 	    },
 
-	    focusExpo: function focusExpo(streamId, width, height, x, y, fail) {
+	    _getPosition: function getPosition(obj) {
+	        var topValue = 0,
+	            leftValue = 0;
+	        while (obj) {
+	            leftValue += obj.offsetLeft;
+	            topValue += obj.offsetTop;
+	            obj = obj.offsetParent;
+	        }
+
+	        return { clientX: leftValue, clientY: topValue };
+	    },
+
+	    focusExpo: function focusExpo(streamId, videoTag, clickEvent, fail) {
 	        var self = this;
+
+	        var e = clickEvent || window.event;
+	        var scrollX = document.documentElement.scrollLeft || document.body.scrollLeft;
+	        var scrollY = document.documentElement.scrollTop || document.body.scrollTop;
+	        var x = e.pageX || e.clientX + scrollX;
+	        var y = e.pageY || e.clientY + scrollY;
+
+	        var xy = self._getPosition(videoTag);
+
+	        _logger.info("Video tag position ", xy.clientX, ":", xy.clientY);
+
+	        var mediaWidth = videoTag.videoWidth;
+	        var mediaHeight = videoTag.videoHeight;
+
+	        if (mediaHeight > mediaWidth) {
+	            var t = mediaWidth / mediaHeight;
+	            mediaHeight = videoTag.offsetHeight;
+	            mediaWidth = mediaHeight * t;
+
+	            xy.clientX += (videoTag.offsetWidth - mediaWidth) / 2;
+	        } else {
+	            var t = mediaHeight / mediaWidth;
+	            mediaWidth = videoTag.offsetWidth;
+	            mediaHeight = mediaWidth * t;
+
+	            xy.clientY += (videoTag.offsetHeight - mediaHeight) / 2;
+	        }
+	        _logger.info("Media position ", xy.clientX, ":", xy.clientY);
+	        _logger.info("Media xy ", mediaWidth, ":", mediaHeight);
+	        _logger.info("Click position ", x, ":", y);
+
+	        self._focusExpo(streamId, mediaWidth, mediaHeight, x - xy.clientX, y - xy.clientY, fail);
+	    },
+
+	    _focusExpo: function _focusExpo(streamId, width, height, x, y, fail) {
+	        var self = this;
+
+	        if (x <= 0 || x > width) {
+	            return;
+	        }
+	        if (y <= 0 || y > height) {
+	            return;
+	        }
 
 	        self.__assertCurrent();
 	        var attendee = self.current;
@@ -1288,11 +1361,11 @@
 	        return this;
 	    },
 	    setVoff: function setVoff(voff) {
-	        voff && (this.voff = voff);
+	        typeof voff === "undefined" || (this.voff = voff ? 1 : 0);
 	        return this;
 	    },
 	    setAoff: function setAoff(aoff) {
-	        aoff && (this.aoff = aoff);
+	        typeof aoff === "undefined" || (this.aoff = aoff ? 1 : 0);
 	        return this;
 	    },
 	    setFlag: function setFlag(flag) {
@@ -2494,7 +2567,7 @@
 	                stream.rtcId = webrtc.getRtcId();
 	                stream._webrtc = webrtc;
 	                stream.id = rsp.streamId;
-	                stream.owner = { id: rsp.memId, nickName: self.nickName, name: self.sysUserId };
+	                stream.owner = { id: rsp.memId, nickName: self.nickName, name: self.sysUserId, ext: self.extObj };
 
 	                joined && joined(rsp.memId, stream);
 	                self.onEvent(new __event.PushSuccess({ stream: stream, hidden: true }));
@@ -2555,7 +2628,7 @@
 	                stream._localMediaStream = pubS.localStream;
 	                stream._webrtc = webrtc;
 	                stream.rtcId = webrtc && webrtc.getRtcId();
-	                stream.owner = { id: self.getMemberId(), nickName: self.nickName, name: self.sysUserId };
+	                stream.owner = { id: self.getMemberId(), nickName: self.nickName, name: self.sysUserId, ext: self.extObj };
 
 	                var _event_ = new __event.PushFail({
 	                    stream: stream,
@@ -2587,7 +2660,7 @@
 	            stream._webrtc = webrtc;
 	            stream.rtcId = webrtc.getRtcId();
 	            stream.id = rsp.streamId;
-	            stream.owner = { id: self.getMemberId(), nickName: self.nickName, name: self.sysUserId };
+	            stream.owner = { id: self.getMemberId(), nickName: self.nickName, name: self.sysUserId, ext: self.extObj };
 
 	            self.onEvent(new __event.PushSuccess({ stream: stream, hidden: true }));
 	            pushed && pushed(stream);
@@ -3418,7 +3491,10 @@
 	                webrtc && _util.forEach(self._cacheStreams, function (sid, _stream) {
 	                    if (_stream.rtcId === rtcId) {
 	                        if (_stream.located()) {
-	                            _stream.type !== 1 && _stream._localMediaStream && _stream._localMediaStream.getTracks().forEach(function (track) {
+	                            // _stream.type !== 1 && _stream._localMediaStream && _stream._localMediaStream.getTracks().forEach(function (track) {
+	                            //     track.stop();
+	                            // });
+	                            _stream._localMediaStream && _stream._localMediaStream.getTracks().forEach(function (track) {
 	                                track.stop();
 	                            });
 
